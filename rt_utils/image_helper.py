@@ -161,8 +161,10 @@ def get_pixel_to_patient_transformation_matrix(series_data):
     row_direction, column_direction, slice_direction = get_slice_directions(first_slice)
 
     mat = np.identity(4, dtype=np.float32)
-    mat[:3, 0] = row_direction * row_spacing
-    mat[:3, 1] = column_direction * column_spacing
+    #The following might appear counter-intuitive, i.e. multiplying the row direction with the column spacing and vice-versa
+    #But is the correct way to create the transformation matrix, see https://nipy.org/nibabel/dicom/dicom_orientation.html
+    mat[:3, 0] = row_direction * column_spacing 
+    mat[:3, 1] = column_direction * row_spacing
     mat[:3, 2] = slice_direction * slice_spacing
     mat[:3, 3] = offset
 
@@ -183,9 +185,11 @@ def get_patient_to_pixel_transformation_matrix(series_data):
     # inv(M) = [ inv(rotation&scaling)   -inv(rotation&scaling) * translation ]
     #          [          0                                1                  ]
 
+    #The following might appear counter-intuitive, i.e. dividing the row direction with the column spacing and vice-versa
+    #But is the correct way to create the inverse transformation matrix, see https://nipy.org/nibabel/dicom/dicom_orientation.html
     linear = np.identity(3, dtype=np.float32)
-    linear[0, :3] = row_direction / row_spacing
-    linear[1, :3] = column_direction / column_spacing
+    linear[0, :3] = row_direction / column_spacing
+    linear[1, :3] = column_direction / row_spacing
     linear[2, :3] = slice_direction / slice_spacing
 
     mat = np.identity(4, dtype=np.float32)
