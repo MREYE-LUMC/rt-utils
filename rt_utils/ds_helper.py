@@ -1,18 +1,19 @@
 import datetime
-from rt_utils.image_helper import get_contours_coords
-from rt_utils.utils import ROIData, SOPClassUID
+
 import numpy as np
-from pydicom.uid import generate_uid
 from pydicom.dataset import Dataset, FileDataset, FileMetaDataset
 from pydicom.sequence import Sequence
-from pydicom.uid import ImplicitVRLittleEndian
+from pydicom.uid import ImplicitVRLittleEndian, generate_uid
+
+from rt_utils.image_helper import DicomInfo, FrameInfo, get_contours_coords
+from rt_utils.utils import ROIData, SOPClassUID
 
 """
 File contains helper methods that handles DICOM header creation/formatting
 """
 
 
-def create_rtstruct_dataset(series_data) -> FileDataset:
+def create_rtstruct_dataset(series_data: DicomInfo) -> FileDataset:
     ds = generate_base_dataset()
     add_study_and_series_information(ds, series_data)
     add_patient_information(ds, series_data)
@@ -71,34 +72,32 @@ def add_sequence_lists_to_ds(ds: FileDataset):
     ds.RTROIObservationsSequence = Sequence()
 
 
-def add_study_and_series_information(ds: FileDataset, series_data):
-    reference_ds = series_data[0]  # All elements in series should have the same data
-    ds.StudyDate = reference_ds.StudyDate
-    ds.SeriesDate = getattr(reference_ds, "SeriesDate", "")
-    ds.StudyTime = reference_ds.StudyTime
-    ds.SeriesTime = getattr(reference_ds, "SeriesTime", "")
-    ds.StudyDescription = getattr(reference_ds, "StudyDescription", "")
-    ds.SeriesDescription = getattr(reference_ds, "SeriesDescription", "")
-    ds.StudyInstanceUID = reference_ds.StudyInstanceUID
+def add_study_and_series_information(ds: FileDataset, series_data: DicomInfo):
+    ds.StudyDate = series_data.study_info.study_date
+    ds.SeriesDate = series_data.study_info.study_date
+    ds.StudyTime = series_data.study_info.study_time
+    ds.SeriesTime = series_data.study_info.series_time
+    ds.StudyDescription = series_data.study_info.study_description
+    ds.SeriesDescription = series_data.study_info.series_description
+    ds.StudyInstanceUID = series_data.study_info.study_instance_uid
     ds.SeriesInstanceUID = generate_uid()  # TODO: find out if random generation is ok
-    ds.StudyID = reference_ds.StudyID
+    ds.StudyID = series_data.study_info.study_id
     ds.SeriesNumber = "1"  # TODO: find out if we can just use 1 (Should be fine since its a new series)
 
 
-def add_patient_information(ds: FileDataset, series_data):
-    reference_ds = series_data[0]  # All elements in series should have the same data
-    ds.PatientName = getattr(reference_ds, "PatientName", "")
-    ds.PatientID = getattr(reference_ds, "PatientID", "")
-    ds.PatientBirthDate = getattr(reference_ds, "PatientBirthDate", "")
-    ds.PatientSex = getattr(reference_ds, "PatientSex", "")
-    ds.PatientAge = getattr(reference_ds, "PatientAge", "")
-    ds.PatientSize = getattr(reference_ds, "PatientSize", "")
-    ds.PatientWeight = getattr(reference_ds, "PatientWeight", "")
+def add_patient_information(ds: FileDataset, series_data: DicomInfo):
+    ds.PatientName = series_data.patient_info.patient_name
+    ds.PatientID = series_data.patient_info.patient_id
+    ds.PatientBirthDate = series_data.patient_info.patient_birth_date
+    ds.PatientSex = series_data.patient_info.patient_sex
+    ds.PatientAge = series_data.patient_info.patient_age
+    ds.PatientSize = series_data.patient_info.patient_size
+    ds.PatientWeight = series_data.patient_info.patient_weight
 
 
-def add_refd_frame_of_ref_sequence(ds: FileDataset, series_data):
+def add_refd_frame_of_ref_sequence(ds: FileDataset, series_data: DicomInfo):
     refd_frame_of_ref = Dataset()
-    refd_frame_of_ref.FrameOfReferenceUID =  getattr(series_data[0], 'FrameOfReferenceUID', generate_uid())
+    refd_frame_of_ref.FrameOfReferenceUID =  series_data.frame_of_reference_uid
     refd_frame_of_ref.RTReferencedStudySequence = create_frame_of_ref_study_sequence(series_data)
 
     # Add to sequence
@@ -106,10 +105,9 @@ def add_refd_frame_of_ref_sequence(ds: FileDataset, series_data):
     ds.ReferencedFrameOfReferenceSequence.append(refd_frame_of_ref)
 
 
-def create_frame_of_ref_study_sequence(series_data) -> Sequence:
-    reference_ds = series_data[0]  # All elements in series should have the same data
+def create_frame_of_ref_study_sequence(series_data: DicomInfo) -> Sequence:
     rt_refd_series = Dataset()
-    rt_refd_series.SeriesInstanceUID = reference_ds.SeriesInstanceUID
+    rt_refd_series.SeriesInstanceUID = series_data.study_info.series_instance_uid
     rt_refd_series.ContourImageSequence = create_contour_image_sequence(series_data)
 
     rt_refd_series_sequence = Sequence()
@@ -117,7 +115,7 @@ def create_frame_of_ref_study_sequence(series_data) -> Sequence:
 
     rt_refd_study = Dataset()
     rt_refd_study.ReferencedSOPClassUID = SOPClassUID.DETACHED_STUDY_MANAGEMENT
-    rt_refd_study.ReferencedSOPInstanceUID = reference_ds.StudyInstanceUID
+    rt_refd_study.ReferencedSOPInstanceUID = series_data.study_info.study_instance_uid
     rt_refd_study.RTReferencedSeriesSequence = rt_refd_series_sequence
 
     rt_refd_study_sequence = Sequence()
@@ -125,14 +123,14 @@ def create_frame_of_ref_study_sequence(series_data) -> Sequence:
     return rt_refd_study_sequence
 
 
-def create_contour_image_sequence(series_data) -> Sequence:
+def create_contour_image_sequence(series_data: DicomInfo) -> Sequence:
     contour_image_sequence = Sequence()
 
     # Add each referenced image
-    for series in series_data:
+    for frame in series_data.frame_info:
         contour_image = Dataset()
-        contour_image.ReferencedSOPClassUID = series.SOPClassUID
-        contour_image.ReferencedSOPInstanceUID = series.SOPInstanceUID
+        contour_image.ReferencedSOPClassUID = frame.sop_class_uid
+        contour_image.ReferencedSOPInstanceUID = frame.sop_instance_uid
         contour_image_sequence.append(contour_image)
 
     return contour_image_sequence
@@ -149,7 +147,7 @@ def create_structure_set_roi(roi_data: ROIData) -> Dataset:
     return structure_set_roi
 
 
-def create_roi_contour(roi_data: ROIData, series_data) -> Dataset:
+def create_roi_contour(roi_data: ROIData, series_data: DicomInfo) -> Dataset:
     roi_contour = Dataset()
     roi_contour.ROIDisplayColor = roi_data.color
     roi_contour.ContourSequence = create_contour_sequence(roi_data, series_data)
@@ -157,7 +155,7 @@ def create_roi_contour(roi_data: ROIData, series_data) -> Dataset:
     return roi_contour
 
 
-def create_contour_sequence(roi_data: ROIData, series_data) -> Sequence:
+def create_contour_sequence(roi_data: ROIData, series_data: DicomInfo) -> Sequence:
     """
     Iterate through each slice of the mask
     For each connected segment within a slice, create a contour
@@ -167,18 +165,18 @@ def create_contour_sequence(roi_data: ROIData, series_data) -> Sequence:
 
     contours_coords = get_contours_coords(roi_data, series_data)
 
-    for series_slice, slice_contours in zip(series_data, contours_coords):
+    for frame, slice_contours in zip(series_data.frame_info, contours_coords):
         for contour_data in slice_contours:
-            contour = create_contour(series_slice, contour_data)
+            contour = create_contour(frame, contour_data)
             contour_sequence.append(contour)
 
     return contour_sequence
 
 
-def create_contour(series_slice: Dataset, contour_data: np.ndarray) -> Dataset:
+def create_contour(series_slice: FrameInfo, contour_data: np.ndarray) -> Dataset:
     contour_image = Dataset()
-    contour_image.ReferencedSOPClassUID = series_slice.SOPClassUID
-    contour_image.ReferencedSOPInstanceUID = series_slice.SOPInstanceUID
+    contour_image.ReferencedSOPClassUID = series_slice.sop_class_uid
+    contour_image.ReferencedSOPInstanceUID = series_slice.sop_instance_uid
 
     # Contour Image Sequence
     contour_image_sequence = Sequence()

@@ -1,7 +1,10 @@
 from typing import List, Union
+
 import numpy as np
 from pydicom.dataset import FileDataset
+
 from rt_utils.utils import ROIData
+
 from . import ds_helper, image_helper
 
 
@@ -10,7 +13,7 @@ class RTStruct:
     Wrapper class to facilitate appending and extracting ROI's within an RTStruct
     """
 
-    def __init__(self, series_data, ds: FileDataset, ROIGenerationAlgorithm=0):
+    def __init__(self, series_data: image_helper.DicomInfo, ds: FileDataset, ROIGenerationAlgorithm=0):
         self.series_data = series_data
         self.ds = ds
         self.frame_of_reference_uid = ds.ReferencedFrameOfReferenceSequence[
@@ -36,9 +39,9 @@ class RTStruct:
         """
         Add a Region of Interest (ROI) to the RTStruct given a 3D binary mask for each slice.
 
-        Optionally input a color or name for the ROI. 
+        Optionally input a color or name for the ROI.
         If `use_pin_hole` is set to True, attempts to handle ROIs with holes by creating a single continuous contour.
-        If `approximate_contours` is set to False, no approximation is done during contour generation, 
+        If `approximate_contours` is set to False, no approximation is done during contour generation,
         potentially resulting in a large amount of contour data.
 
         This method updates the internal DICOM structure (RTStruct) by adding:
@@ -110,10 +113,10 @@ class RTStruct:
         if mask.ndim != 3:
             raise RTStruct.ROIException(f"Mask must be 3 dimensional. Got {mask.ndim}")
 
-        if len(self.series_data) != np.shape(mask)[2]:
+        if self.series_data.number_of_frames != np.shape(mask)[2]:
             raise RTStruct.ROIException(
                 "Mask must have the same number of layers (in the 3rd dimension) as the input series. "
-                + f"Expected {len(self.series_data)}, got {np.shape(mask)[2]}"
+                + f"Expected {self.series_data.number_of_frames}, got {np.shape(mask)[2]}"
             )
 
         if np.sum(mask) == 0:

@@ -1,10 +1,10 @@
-from typing import List
+import warnings
+
 from pydicom.dataset import Dataset
 from pydicom.filereader import dcmread
 
-import warnings
-
 from rt_utils.utils import SOPClassUID
+
 from . import ds_helper, image_helper
 from .rtstruct import RTStruct
 
@@ -53,7 +53,7 @@ class RTStructBuilder:
             raise Exception("Please check that the existing RTStruct is valid")
 
     @staticmethod
-    def validate_rtstruct_series_references(ds: Dataset, series_data: List[Dataset], warn_only: bool = False):
+    def validate_rtstruct_series_references(ds: Dataset, series_data: image_helper.DicomInfo, warn_only: bool = False):
         """
         Method to validate RTStruct only references dicom images found within the input series_data
         """
@@ -71,14 +71,13 @@ class RTStructBuilder:
 
     @staticmethod
     def validate_contour_image_in_series_data(
-        contour_image: Dataset, series_data: List[Dataset], warning_only: bool = False
+        contour_image: Dataset, series_data: image_helper.DicomInfo, warning_only: bool = False
     ):
         """
         Method to validate that the ReferencedSOPInstanceUID of a given contour image exists within the series data
         """
-        for series in series_data:
-            if contour_image.ReferencedSOPInstanceUID == series.SOPInstanceUID:
-                return
+        if contour_image.ReferencedSOPInstanceUID in series_data.sop_instance_uids:
+            return
 
         # ReferencedSOPInstanceUID is NOT available
         msg = f"Loaded RTStruct references image(s) that are not contained in input series data. " \
