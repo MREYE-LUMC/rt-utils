@@ -30,11 +30,13 @@ class FrameInfo:
 
     @classmethod
     def from_single_frame(cls, ds: Dataset) -> "FrameInfo":
+        slice_location = getattr(ds, "SliceLocation", get_slice_position(ds))
+
         return cls(
             sop_class_uid=ds.SOPClassUID,
             sop_instance_uid=ds.SOPInstanceUID,
             instance_number=ds.InstanceNumber,
-            slice_location=ds.SliceLocation,
+            slice_location=slice_location,
             image_position_patient=ds.ImagePositionPatient,
         )
 
@@ -398,6 +400,10 @@ def get_spacing_between_slices(series_data: Dataset | list[Dataset]) -> float:
     if isinstance(series_data, list):
         if hasattr(series_data[0], "SpacingBetweenSlices"):
             return float(series_data[0].SpacingBetweenSlices)
+
+        if len(series_data) < 2:
+            # Return nonzero value for one slice just to make the transformation matrix invertible
+            return 1.0
 
         first = get_slice_position(series_data[0])
         last = get_slice_position(series_data[-1])
