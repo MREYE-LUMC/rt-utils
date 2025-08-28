@@ -119,7 +119,6 @@ class DicomInfo:
     number_of_frames: int
     frame_info: list[FrameInfo]
     frame_of_reference_uid: UID
-    # rt_referenced_study_sequence: Sequence
 
     study_info: StudyInfo
     patient_info: PatientInfo
