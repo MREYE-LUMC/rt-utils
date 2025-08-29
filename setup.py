@@ -3,8 +3,6 @@ import setuptools
 VERSION = "1.2.6"
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
-with open("requirements.txt") as f:
-    required = f.read().splitlines()
 
 setuptools.setup(
     name="rt-utils",
@@ -15,8 +13,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/qurit/rtutils",
-    package_dir={'':"rt_utils"},
-    packages=setuptools.find_packages("rt_utils", exclude="tests"),
+    packages=["rt_utils"],
     keywords=["RTStruct", "Dicom", "Pydicom"],
     classifiers=[
         "Operating System :: OS Independent",
@@ -40,5 +37,10 @@ setuptools.setup(
         "Intended Audience :: Developers",
     ],
     python_requires=">=3.7",
-    install_requires=required,
+    install_requires=[
+        "pydicom",
+        "numpy",
+        "opencv-python>=4.0.0",
+        "dataclasses",
+    ],
 )
