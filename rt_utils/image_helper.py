@@ -43,13 +43,17 @@ class FrameInfo:
     @classmethod
     def from_multi_frame(cls, ds: Dataset, index: int) -> "FrameInfo":
         per_frame = ds.PerFrameFunctionalGroupsSequence[index]
+        sop_class_uid, sop_instance_uid = get_multi_frame_sop_attributes(ds, index)
+        instance_number = get_multi_frame_instance_number(ds, index)
 
         return cls(
-            sop_class_uid=per_frame[(0x0020, 0x9172)][0].ReferencedSOPClassUID,
-            sop_instance_uid=per_frame[(0x0020, 0x9172)][0].ReferencedSOPInstanceUID,
-            instance_number=per_frame[(0x0020, 0x9171)][0].InstanceNumber,
-            slice_location=per_frame[(0x0020, 0x9171)][0].SliceLocation,
-            image_position_patient=per_frame[(0x0020, 0x9113)][0].ImagePositionPatient,
+            sop_class_uid=sop_class_uid,
+            sop_instance_uid=sop_instance_uid,
+            instance_number=instance_number,
+            slice_location=get_multi_frame_slice_position(ds, index),
+            image_position_patient=per_frame.PlanePositionSequence[
+                0
+            ].ImagePositionPatient,
         )
 
 
@@ -140,7 +144,9 @@ class DicomInfo:
             columns=first.Columns,
             number_of_frames=len(ds_list),
             frame_info=[FrameInfo.from_single_frame(ds) for ds in ds_list],
-            frame_of_reference_uid=getattr(first, 'FrameOfReferenceUID', generate_uid()),
+            frame_of_reference_uid=getattr(
+                first, "FrameOfReferenceUID", generate_uid()
+            ),
             study_info=StudyInfo.from_dataset(first),
             patient_info=PatientInfo.from_dataset(first),
         )
@@ -152,16 +158,16 @@ class DicomInfo:
         ]
 
         return cls(
-            image_orientation_patient=ds.ImageOrientationPatient,
+            image_orientation_patient=get_image_orientation(ds),
             image_position_patient=frame_info[0].image_position_patient,
-            pixel_spacing=ds.PixelSpacing,
+            pixel_spacing=get_pixel_spacing(ds),
             slice_spacing=get_spacing_between_slices(ds),
             slice_directions=get_slice_directions(ds),
             rows=ds.Rows,
             columns=ds.Columns,
             number_of_frames=ds.NumberOfFrames,
             frame_info=frame_info,
-            frame_of_reference_uid=getattr(ds, 'FrameOfReferenceUID', generate_uid()),
+            frame_of_reference_uid=getattr(ds, "FrameOfReferenceUID", generate_uid()),
             study_info=StudyInfo.from_dataset(ds),
             patient_info=PatientInfo.from_dataset(ds),
         )
@@ -382,7 +388,7 @@ def get_slice_position(series_slice: Dataset):
 
 
 def get_slice_directions(series_slice: Dataset) -> SliceDirections:
-    orientation = series_slice.ImageOrientationPatient
+    orientation = get_image_orientation(series_slice)
     row_direction = np.array(orientation[:3])
     column_direction = np.array(orientation[3:])
     slice_direction = -np.cross(row_direction, column_direction)
@@ -412,13 +418,9 @@ def get_spacing_between_slices(series_data: Dataset | list[Dataset]) -> float:
         if hasattr(series_data, "SpacingBetweenSlices"):
             return float(series_data.SpacingBetweenSlices)
 
-        return (
-            series_data.PerFrameFunctionalGroupsSequence[1][(0x0020, 0x9171)][
-                0
-            ].SliceLocation
-            - series_data.PerFrameFunctionalGroupsSequence[0][(0x0020, 0x9171)][
-                0
-            ].SliceLocation
+        return float(
+            get_multi_frame_slice_position(series_data, 1)
+            - get_multi_frame_slice_position(series_data, 0)
         )
 
     # Return nonzero value for one slice just to make the transformation matrix invertible
@@ -488,6 +490,67 @@ def create_empty_slice_mask(series_data: DicomInfo):
     mask_dims = (int(series_data.columns), int(series_data.rows))
     mask = np.zeros(mask_dims).astype(bool)
     return mask
+
+
+def get_image_orientation(ds: Dataset) -> List[float]:
+    if hasattr(ds, "ImageOrientationPatient"):
+        return ds.ImageOrientationPatient
+    else:
+        return (
+            ds.SharedFunctionalGroupsSequence[0]
+            .PlaneOrientationSequence[0]
+            .ImageOrientationPatient
+        )
+
+
+def get_pixel_spacing(ds: Dataset) -> List[float]:
+    if hasattr(ds, "PixelSpacing"):
+        return ds.PixelSpacing
+    else:
+        return (
+            ds.SharedFunctionalGroupsSequence[0].PixelMeasuresSequence[0].PixelSpacing
+        )
+
+
+def get_multi_frame_slice_position(series_data: Dataset, frame_index: int):
+    per_frame = series_data.PerFrameFunctionalGroupsSequence[frame_index]
+
+    if (0x0020, 0x9171) in per_frame:
+        return per_frame[(0x0020, 0x9171)][0].SliceLocation
+
+    image_position_patient = per_frame.PlanePositionSequence[0].ImagePositionPatient
+    _, _, slice_direction = get_slice_directions(series_data)
+
+    return np.dot(slice_direction, image_position_patient)
+
+
+def get_multi_frame_instance_number(ds: Dataset, frame_index: int) -> int:
+    per_frame = ds.PerFrameFunctionalGroupsSequence[frame_index]
+
+    if (0x0020, 0x9171) in per_frame:
+        return per_frame[(0x0020, 0x9171)][0].InstanceNumber
+
+    return ds.InstanceNumber
+
+
+def get_multi_frame_sop_attributes(ds: Dataset, frame_index: int) -> tuple[UID, UID]:
+    per_frame = ds.PerFrameFunctionalGroupsSequence[frame_index]
+
+    sop_class_uid: UID
+    sop_instance_uid: UID
+
+    if (0x0020, 0x9172) in per_frame:
+        sop_class_uid = per_frame[(0x0020, 0x9172)][0].ReferencedSOPClassUID
+        sop_instance_uid = per_frame[(0x0020, 0x9172)][0].ReferencedSOPInstanceUID
+    elif hasattr(ds, "ReferencedRawDataSequence"):
+        raw_data_sequence = ds.ReferencedRawDataSequence[0]
+        referenced_sop_sequence = raw_data_sequence.ReferencedSeriesSequence[
+            0
+        ].ReferencedSOPSequence[0]
+        sop_class_uid = referenced_sop_sequence.ReferencedSOPClassUID
+        sop_instance_uid = referenced_sop_sequence.ReferencedSOPInstanceUID
+
+    return sop_class_uid, sop_instance_uid
 
 
 class Hierarchy(IntEnum):
